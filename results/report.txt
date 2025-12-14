@@ -1,0 +1,29 @@
+Report
+Theme: Threads
+Date: 2025-12-14 23:03:41
+==================================================
+
+Demo: Race Condition Demo
+Status: SUCCESS
+Wall time: 0.152s
+CPU time: 0.466s
+CPUs utilized: 3.61
+Parallelism: 3.07x
+Duration: 0.152s
+Okay
+
+Demo: Deadlock Demo
+Status: ERROR
+Wall time: 15.019s
+CPU time: 0.000s
+CPUs utilized: 0.00
+Duration: 15.019s
+
+Demo: Normal mode
+Status: SUCCESS
+Wall time: 0.229s
+CPU time: 0.742s
+CPUs utilized: 3.67
+Parallelism: 3.24x
+Duration: 0.229s
+
