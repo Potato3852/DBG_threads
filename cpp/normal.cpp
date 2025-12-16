@@ -1,124 +1,115 @@
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 #include <iostream>
+#include <string>
+#include <filesystem>
+#include <set>
+#include <algorithm>
 #include <thread>
-#include <vector>
-#include <atomic>
 #include <mutex>
 #include <chrono>
+#include <vector>
+#include <atomic>
 
-// Сравнение разных подходов к синхронизации
 
-void test_atomic(int iterations, int num_threads) {
-    std::atomic<int> counter{0};
-    std::vector<std::thread> threads;
-    
-    auto work = [&counter, iterations]() {
-        for (int i = 0; i < iterations; ++i) {
-            counter.fetch_add(1, std::memory_order_relaxed);
+std::mutex mtx;
+namespace fs = std::filesystem;
+
+
+void process(const std::vector<fs::path> files, const std::string& output_dir, std::atomic<int>& count_of_success, std::atomic<int>& count_of_failed) {
+    for(const auto& file_path : files) {
+       
+        int width, height, channels;
+        unsigned char* img = stbi_load(file_path.string().c_str(), &width, &height, &channels, 0);
+        
+        if(!img) {
+            ++count_of_failed;
+            continue;
         }
-    };
-    
-    auto start = std::chrono::high_resolution_clock::now();
-    
-    for (int i = 0; i < num_threads; ++i) {
-        threads.emplace_back(work);
+        
+      
+        int total_pixels = width * height * channels;
+        for(int i = 0; i < total_pixels; i++) {
+            img[i] = 255 - img[i];
+        }
+
+        std::string filename = file_path.stem().string();
+        std::string output_path = output_dir + "/inverted_" + filename + ".png";
+
+        std::unique_lock<std::mutex> lock(mtx);
+
+        std::cout << "Proccessed: " << output_path << std::endl;
+
+        lock.unlock();
+        if(!stbi_write_png(output_path.c_str(), width, height, channels, img, width * channels)) {
+            ++count_of_failed;
+        } else {
+            ++count_of_success;
+        }
+        
+        stbi_image_free(img);
     }
-    
-    for (auto& t : threads) {
-        t.join();
-    }
-    
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    
-    std::cout << "Atomic counter: " << counter.load() 
-              << " in " << duration.count() << " ms" << std::endl;
 }
 
-void test_mutex(int iterations) {
-    int counter = 0;
-    std::mutex mtx;
-    std::vector<std::thread> threads;
-    
-    auto work = [&counter, &mtx, iterations]() {
-        for (int i = 0; i < iterations; ++i) {
-            std::lock_guard<std::mutex> lock(mtx);
-            counter++;
+int main(int argc, char** argv) {
+    int NUM_THREADS = 4;
+    if(argc > 1) {
+        NUM_THREADS = std::atoi(argv[1]);
+    }
+
+    std::string input_dir = "./dataset";
+    std::string output_dir = "./results/images";
+
+    if(!fs::exists(input_dir)) {
+        std::cerr << "Error: Directory '" << input_dir << "' doesn't exist!\n";
+        return 1;
+    }
+
+    if(!fs::exists(output_dir)) {
+        fs::create_directory(output_dir);
+    }
+
+    std::set<std::string> extensions = {".png", ".jpeg", ".jpg"};
+
+    //put all files in one vector
+    std::vector<fs::path> image_files;
+
+    for(const auto& file : fs::directory_iterator(input_dir)) {
+        if(file.is_regular_file()) {
+            std::string ext = file.path().extension().string();
+            
+             //check the correctness of extension
+            bool supported = find(extensions.begin(), extensions.end(), ext) != extensions.end();
+            if(!supported) continue;
+
+            image_files.push_back(file.path());
         }
-    };
-    
-    auto start = std::chrono::high_resolution_clock::now();
-    
-    for (int i = 0; i < 4; ++i) {
-        threads.emplace_back(work);
     }
-    
-    for (auto& t : threads) {
-        t.join();
-    }
-    
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    
-    std::cout << "Mutex counter:  " << counter
-              << " in " << duration.count() << " ms" << std::endl;
-}
 
-void test_lockfree(int iterations) {
-    // Локальная переменная в каждом потоке + редукция в конце
+    if(image_files.empty()) {
+        std::cerr << "Error: No image files found in dataset!" << std::endl;
+        return 1;
+    }
+    
+    std::vector<std::vector<fs::path>> pieces(NUM_THREADS);
+    for(size_t i = 0; i < image_files.size(); i++) {
+        pieces[i % NUM_THREADS].push_back(image_files[i]);
+    }
+
+    std::atomic<int> success_count(0);
+    std::atomic<int> fail_count(0);
     std::vector<std::thread> threads;
-    std::vector<int> local_counters(4, 0);
-    int final_counter = 0;
-    
-    auto work = [&local_counters, iterations](int thread_id) {
-        int local_sum = 0;
-        for (int i = 0; i < iterations; ++i) {
-            local_sum++;
-        }
-        local_counters[thread_id] = local_sum;
-    };
-    
-    auto start = std::chrono::high_resolution_clock::now();
-    
-    for (int i = 0; i < 4; ++i) {
-        threads.emplace_back(work, i);
-    }
-    
-    for (auto& t : threads) {
-        t.join();
-    }
-    
-    // Редукция
-    for (int val : local_counters) {
-        final_counter += val;
-    }
-    
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    
-    std::cout << "Lock-free:      " << final_counter
-              << " in " << duration.count() << " ms" << std::endl;
-}
 
-int main(int argc, char* argv[]) {
-    const int ITERATIONS = 1000000;
 
-    int num_threads = 4;
-    if (argc > 1) num_threads = std::atoi(argv[1]);
-    
-    std::cout << "=== Optimal Concurrency Comparison ===" << std::endl;
-    std::cout << "Iterations per thread: " << ITERATIONS << std::endl;
-    std::cout << "Threads: 4" << std::endl;
-    
-    std::cout << "\nComparing synchronization methods:" << std::endl;
-    
-    test_atomic(ITERATIONS, num_threads);
-    test_mutex(ITERATIONS);
-    test_lockfree(ITERATIONS);
-    
-    std::cout << "\n🎯 Recommendations:" << std::endl;
-    std::cout << "• Use atomics for simple counters" << std::endl;
-    std::cout << "• Use mutexes for complex critical sections" << std::endl;
-    std::cout << "• Use lock-free when possible (thread-local + reduction)" << std::endl;
-    
+    for(int i = 0; i < NUM_THREADS; i++) {
+        threads.emplace_back(process, pieces[i], output_dir, std::ref(success_count), std::ref(fail_count));             
+    }
+
+    for(auto& thread : threads) {
+        thread.join();
+    }
+
     return 0;
-}
+}   

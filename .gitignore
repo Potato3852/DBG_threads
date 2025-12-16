@@ -1,0 +1,6 @@
+.vscode/
+/build/
+/results/
+
+/python/__pychache__/
+__pychache__/

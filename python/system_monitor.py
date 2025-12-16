@@ -41,20 +41,31 @@ class LinuxMonitor:
         start_wall = time.time()
         
         try:
-            proc = subprocess.run(
-                perf_cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout
+            proc = subprocess.Popen(
+            perf_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
             )
+            
+            stdout, stderr = proc.communicate(timeout=timeout)
+            returncode = proc.returncode
+            
         except subprocess.TimeoutExpired:
             print(f"Timeout after {timeout}s")
-            proc = subprocess.CompletedProcess(
-                args=perf_cmd,
-                returncode=-1,
-                stdout="",
-                stderr="TIMEOUT"
-            )
+            proc.terminate()
+            
+            try:
+                proc.wait(timeout=2) 
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            
+            return {
+                'program_output': '',
+                'program_stderr': f'TIMEOUT after {timeout}s',
+                'return_code': -1
+            }
         
         end_wall = time.time()
         
@@ -71,9 +82,9 @@ class LinuxMonitor:
         
         return {
             'perf': perf_metrics,
-            'program_output': proc.stdout,
-            'program_stderr': proc.stderr,
-            'return_code': proc.returncode
+            'program_output': stdout,
+            'program_stderr': stderr,
+            'return_code': returncode
         }
     
     def _parse_perf_file(self, filepath: str) -> Dict:
@@ -202,3 +213,36 @@ class LinuxMonitor:
             summary['cpu_efficiency'] = (self.metrics.cpu_time / self.metrics.wall_time) * 100
         
         return summary
+    
+    def _parse_perf_output_direct(self, perf_output: str) -> Dict:
+        metrics = {}
+        
+        patterns = {
+            'cpus_utilized': r'([\d.]+)\s+CPUs utilized',
+            'user_time': r'([\d.]+)\s+seconds user',
+            'sys_time': r'([\d.]+)\s+seconds sys',
+            'task_clock': r'([\d,.]+)\s+msec\s+task-clock',
+        }
+        
+        for key, pattern in patterns.items():
+            match = re.search(pattern, perf_output)
+            if match:
+                value = match.group(1).replace(',', '')
+                metrics[key] = float(value)
+        
+        if 'user_time' in metrics and 'sys_time' in metrics:
+            metrics['total_cpu_time'] = metrics['user_time'] + metrics['sys_time']
+        
+        if 'cpus_utilized' in metrics:
+            metrics['cpu_percent_single_core'] = metrics['cpus_utilized'] * 100
+            
+            try:
+                import psutil
+                total_cores = psutil.cpu_count(logical=True)
+                metrics['cpu_percent_total'] = (metrics['cpus_utilized'] / total_cores) * 100
+                metrics['system_cores'] = total_cores
+            except:
+                metrics['cpu_percent_total'] = 0
+                metrics['system_cores'] = 'unknown'
+        
+        return metrics

@@ -1,100 +1,142 @@
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 #include <iostream>
+#include <string>
+#include <filesystem>
+#include <set>
+#include <algorithm>
 #include <thread>
 #include <mutex>
 #include <chrono>
+#include <vector>
+#include <atomic>
 
-std::mutex mutex1, mutex2;
+// Pakostim
+// std::mutex mtx;
+std::mutex mutex1, mutex2, mutex3;
+namespace fs = std::filesystem;
 
-// Функция, которая может вызвать deadlock (неправильный порядок)
-void thread1_deadlock() {
-    std::cout << "Thread 1: Locking mutex1..." << std::endl;
-    mutex1.lock();
-    std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Увеличиваем шанс deadlock
-    
-    std::cout << "Thread 1: Trying to lock mutex2..." << std::endl;
-    mutex2.lock();
-    
-    std::cout << "Thread 1: Critical section (should not reach here if deadlock)" << std::endl;
-    
-    mutex2.unlock();
-    mutex1.unlock();
-}
 
-void thread2_deadlock() {
-    std::cout << "Thread 2: Locking mutex2..." << std::endl;
-    mutex2.lock();
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    
-    std::cout << "Thread 2: Trying to lock mutex1..." << std::endl;
-    mutex1.lock();
-    
-    std::cout << "Thread 2: Critical section (should not reach here if deadlock)" << std::endl;
-    
-    mutex1.unlock();
-    mutex2.unlock();
-}
+void process(const std::vector<fs::path> files, const std::string& output_dir, std::atomic<int>& count_of_success, std::atomic<int>& count_of_failed, int thread_id) {
+    for(const auto& file_path : files) {
 
-// Функция без deadlock (правильный порядок)
-void thread1_safe() {
-    std::lock(mutex1, mutex2); // Lock both at once
-    std::lock_guard<std::mutex> lock1(mutex1, std::adopt_lock);
-    std::lock_guard<std::mutex> lock2(mutex2, std::adopt_lock);
-    
-    std::cout << "Thread 1: Critical section (safe)" << std::endl;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-}
-
-void thread2_safe() {
-    std::lock(mutex1, mutex2); // Тот же порядок!
-    std::lock_guard<std::mutex> lock1(mutex1, std::adopt_lock);
-    std::lock_guard<std::mutex> lock2(mutex2, std::adopt_lock);
-    
-    std::cout << "Thread 2: Critical section (safe)" << std::endl;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-}
-
-int main() {
-    std::cout << "=== Deadlock Demo ===" << std::endl;
-    
-    // ТЕСТ 1: С deadlock
-    std::cout << "\n[TEST 1] Causing deadlock (circular wait):" << std::endl;
-    
-    auto t1 = std::thread(thread1_deadlock);
-    auto t2 = std::thread(thread2_deadlock);
-    
-    // Даем потокам время на deadlock
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    
-    // Проверяем, живы ли потоки
-    bool t1_done = t1.joinable();
-    bool t2_done = t2.joinable();
-    
-    if (t1_done && t2_done) {
-        // Потоки завершились - нет deadlock
-        t1.join();
-        t2.join();
-        std::cout << "✅ No deadlock occurred (lucky timing)" << std::endl;
-    } else {
-        std::cout << "\n🚨 DEADLOCK DETECTED! Threads are stuck." << std::endl;
-        std::cout << "Thread 1 joinable: " << (t1.joinable() ? "Yes" : "No") << std::endl;
-        std::cout << "Thread 2 joinable: " << (t2.joinable() ? "Yes" : "No") << std::endl;
+        // Prodolshaem pakostit`
+        if(thread_id % 2 == 0) {
+            mutex1.lock();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            mutex2.lock();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            mutex3.lock();  // Поток 0: 1 → 2 → 3
+        } else {
+            mutex3.lock();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            mutex2.lock();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            mutex1.lock();  // Поток 1: 3 → 2 → 1 (ДЕДЛОК!)
+        }
+       
+        int width, height, channels;
+        unsigned char* img = stbi_load(file_path.string().c_str(), &width, &height, &channels, 0);
         
-        // Отделяем потоки (оставляем в deadlock для анализа)
-        t1.detach();
-        t2.detach();
-        std::cout << "Threads detached. Process will exit with deadlock." << std::endl;
+        if(!img) {
+            ++count_of_failed;
+            continue;
+        }
+        
+      
+        int total_pixels = width * height * channels;
+        for(int i = 0; i < total_pixels; i++) {
+            img[i] = 255 - img[i];
+        }
+
+        std::string filename = file_path.stem().string();
+        std::string output_path = output_dir + "/inverted_" + filename + ".png";
+
+        //std::unique_lock<std::mutex> lock(mtx);
+
+        std::cout << "Proccessed: " << output_path << std::endl;
+
+        //lock.unlock();
+        if(!stbi_write_png(output_path.c_str(), width, height, channels, img, width * channels)) {
+            ++count_of_failed;
+        } else {
+            ++count_of_success;
+        }
+        
+        stbi_image_free(img);
+
+        // New
+        if(thread_id % 2 == 0) {
+            mutex3.unlock();
+            mutex2.unlock();
+            mutex1.unlock();
+        } else {
+            mutex1.unlock();
+            mutex2.unlock();
+            mutex3.unlock();
+        }
+    }
+}
+
+int main(int argc, char** argv) {
+    int NUM_THREADS = 4;
+    if(argc > 1) {
+        NUM_THREADS = std::atoi(argv[1]);
+    }
+
+    std::string input_dir = "./dataset";
+    std::string output_dir = "./results/images";
+
+    if(!fs::exists(input_dir)) {
+        std::cerr << "Error: Directory '" << input_dir << "' doesn't exist!\n";
+        return 1;
+    }
+
+    if(!fs::exists(output_dir)) {
+        fs::create_directory(output_dir);
+    }
+
+    std::set<std::string> extensions = {".png", ".jpeg", ".jpg"};
+
+    //put all files in one vector
+    std::vector<fs::path> image_files;
+
+    for(const auto& file : fs::directory_iterator(input_dir)) {
+        if(file.is_regular_file()) {
+            std::string ext = file.path().extension().string();
+            
+             //check the correctness of extension
+            bool supported = find(extensions.begin(), extensions.end(), ext) != extensions.end();
+            if(!supported) continue;
+
+            image_files.push_back(file.path());
+        }
+    }
+
+    if(image_files.empty()) {
+        std::cerr << "Error: No image files found in dataset!" << std::endl;
+        return 1;
     }
     
-    // ТЕСТ 2: Без deadlock
-    std::cout << "\n[TEST 2] Deadlock-free version:" << std::endl;
-    
-    auto t3 = std::thread(thread1_safe);
-    auto t4 = std::thread(thread2_safe);
-    
-    t3.join();
-    t4.join();
-    
-    std::cout << "✅ Both threads completed successfully" << std::endl;
-    
+    std::vector<std::vector<fs::path>> pieces(NUM_THREADS);
+    for(size_t i = 0; i < image_files.size(); i++) {
+        pieces[i % NUM_THREADS].push_back(image_files[i]);
+    }
+
+    std::atomic<int> success_count(0);
+    std::atomic<int> fail_count(0);
+    std::vector<std::thread> threads;
+
+
+    for(int i = 0; i < NUM_THREADS; i++) {
+        threads.emplace_back(process, pieces[i], output_dir, std::ref(success_count), std::ref(fail_count), i);             
+    }
+
+    for(auto& thread : threads) {
+        thread.join();
+    }
+
     return 0;
-}
+}   
