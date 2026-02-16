@@ -11,17 +11,17 @@ cd DBG_threads
 chmod +x run.sh
 ```
 
-# Run all files in cpp/ with default settings (4 threads)
+## Run all files in cpp/ with default settings (4 threads)
 ```bash
 ./run.sh
 ```
 
-# Run with N threads(for example 12)
+## Run with N threads(for example 12)
 ```bash
 ./run.sh 12
 ```
 
-# Run specific file(choose your files after number of threads in <name> or <name>.cpp format)
+## Run specific file(choose your files after number of threads in <name> or <name>.cpp format)
 ```bash
 ./run.sh 8 race_demo
 ./run.sh 4 normal.cpp deadlock_demo.cpp
@@ -31,32 +31,32 @@ chmod +x run.sh
 
 ### Performance metrics via perf stat:
 
-Wall time & CPU time
+- Wall time & CPU time
 
-CPUs utilized & Parallelism
+- CPUs utilized & Parallelism
 
-Thread efficiency (% of theoretical max)
+- Thread efficiency (% of theoretical max)
 
-CPU usage (% of single core & total system)
+- CPU usage (% of single core & total system)
 
 ### Deadlock detection - monitors /proc/[pid]/task/ states
 
-Detects in ~1.5 seconds
+- Detects in ~1.5 seconds
 
-3 consecutive checks = confirmed deadlock
+- 3 consecutive checks = confirmed deadlock
 
 ### Others:
 
-Data race detection - analyzes program output
+- Data race detection - analyzes program output
 
-Flexible execution - run all files or specific ones
+- Flexible execution - run all files or specific ones
 
-Progress visualization - real-time monitoring with progress bars
+- Progress visualization - real-time monitoring with progress bars
 
-Auto-reports - saved in results/report.txt
+-Auto-reports - saved in results/report.txt
 
 ## Example Output
-
+```bash
 === Running: Race Condition Demo ===
 Shell PID: 140890
 Target PID (race_demo): 140891
@@ -75,7 +75,7 @@ System usage:             72.0% of 12 cores
 
 Detections:              🔴 DATA RACE 
 --------------------------------------------------
-
+```
 # Dataset
 We use dataset from https://github.com/JaKooLit/Wallpaper-Bank/
 Thank you a lot!!!
