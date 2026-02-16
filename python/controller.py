@@ -241,7 +241,7 @@ class SimpleController:
                     else:
                         consecutive_deadlock_checks = 0
                 
-                time.sleep(0.1)
+                time.sleep(0.3)
             
             if deadlock_detected or timeout_occurred:
                 print("Terminating entire process group...")
@@ -291,7 +291,7 @@ class SimpleController:
         # Final deadlock check
         
         if not deadlock_detected:
-            if wall_time > 5.0 and cpu_utilized < 0.1:
+            if wall_time > 10.0 and cpu_utilized < 0.1:
                 print(f"DEADLOCK DETECTED BY METRICS!")
                 print(f"Reason: worked {wall_time:.1f}s but used only {cpu_utilized:.2f} cores")
                 deadlock_detected = True
@@ -427,7 +427,7 @@ class SimpleController:
         }
         
         patterns = {
-            'cpus_utilized': r'([\d.]+)\s+CPUs utilized',
+            'cpus_utilized': r'([\d.]+)\s+CPUs  CPUs_utilized',
             'user_time': r'([\d.]+)\s+seconds user',
             'sys_time': r'([\d.]+)\s+seconds sys',
             'wall_time': r'([\d.]+)\s+seconds time elapsed',

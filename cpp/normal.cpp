@@ -163,23 +163,12 @@ void consumer(BlockingQueue<ImageTask>& task_queue, std::vector<ImageResult>& re
 int main(int argc, char** argv){
     int num_consumers = 4;
 
-    if(argc == 2){
-        if(is_digit(argv[1])){
-
-            num_consumers = std::atoi(argv[1]);
-        }else{
-
-            std::cerr << "Enter correct integer value(<= " << std::thread::hardware_concurrency() << ")" << std::endl;
-            ;
-            return 2;
-        }
-    }else{
-        std::cerr << "Usage: <threads_num>\n";
-        return 1;
+    if(argc > 1) {
+        num_consumers = std::atoi(argv[1]);
     }
 
-    std::string input_dir = "../dataset";
-    std::string output_dir = "../results";
+    std::string input_dir = "./dataset";
+    std::string output_dir = "./results/images";
     
     if(!fs::exists(input_dir)){
         std::cerr << "Directory " << input_dir << " does not exist!!!\n";
